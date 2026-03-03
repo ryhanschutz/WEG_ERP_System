@@ -1,0 +1,5 @@
+/workspaces/WEG_ERP_System/backend/src/main/java/erp/Main.java
+/workspaces/WEG_ERP_System/backend/src/main/java/erp/api/ApiServer.java
+/workspaces/WEG_ERP_System/backend/src/main/java/erp/database/DB.java
+/workspaces/WEG_ERP_System/backend/src/main/java/erp/model/Evento.java
+/workspaces/WEG_ERP_System/backend/src/main/java/erp/mqtt/MqttService.java
