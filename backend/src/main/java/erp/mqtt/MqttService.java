@@ -63,17 +63,23 @@ public class MqttService {
 
             // 1. Atualiza status da máquina no banco
             String novoStatus = switch (e.evento) {
-                case "iniciada"  -> "produzindo";
-                case "pausada"   -> "pausada";
-                case "encerrada" -> "concluida";
-                default          -> "idle";
+                case "iniciada"         -> "produzindo";
+                case "pausada"          -> "pausada";
+                case "encerrada"        -> "concluida";
+                case "peca_registrada"  -> "produzindo";   // evento extra vindo do ESP32
+                default                 -> "idle";
             };
             DB.atualizarMaquina(e.maquina_id, novoStatus, e.temperatura);
 
             // 2. Grava o evento na tabela producao
             DB.gravarEvento(e.maquina_id, null, e.evento, e.pecas_boas, e.temperatura, e.autor);
 
-            // 3. Lógica de alertas
+            // 3. Se for registro de peça, incrementa contador da máquina
+            if ("peca_registrada".equals(e.evento) && e.pecas_boas > 0) {
+                DB.incrementarPecasMaquina(e.maquina_id, e.pecas_boas);
+            }
+
+            // 4. Lógica de alertas
             if (e.temperatura > 75) {
                 String msg = e.maquina_id + " — Temperatura elevada: " + e.temperatura + " °C";
                 DB.gravarAlerta("warning", msg, e.maquina_id, "sistema");

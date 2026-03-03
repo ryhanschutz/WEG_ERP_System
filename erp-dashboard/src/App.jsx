@@ -236,37 +236,24 @@ function ModalOrdem({ onClose, onSave }) {
 function ModuloERP({ user, machines, setMachines, ordens, setOrdens, estoque, setEstoque, log, addLog }) {
   const [modal, setModal] = useState(false);
 
-  // Polling de ordens a cada 3 segundos
-  useEffect(()=>{
-    const iv = setInterval(async ()=>{
+  // Polling de ordens e máquinas a cada 3 segundos
+  useEffect(() => {
+    const iv = setInterval(async () => {
       try {
-        const res = await fetch("/api/ordens");
-        if(res.ok) {
-          const ordensData = await res.json();
-          setOrdens(ordensData);
-        }
-      } catch(e) {
-        console.error("Erro ao atualizar ordens:", e);
+        const [resOrdens, resMaquinas] = await Promise.all([
+          fetch("/api/ordens"),
+          fetch("/api/maquinas"),
+        ]);
+        if (resOrdens.ok)   setOrdens(await resOrdens.json());
+        if (resMaquinas.ok) setMachines(await resMaquinas.json());
+      } catch (e) {
+        console.error("Erro no polling:", e);
       }
     }, 3000);
-    return ()=>clearInterval(iv);
-  }, [setOrdens]);
+    return () => clearInterval(iv);
+  }, [setOrdens, setMachines]);
 
-  useEffect(()=>{
-    const iv = setInterval(()=>{
-      setMachines(prev=>prev.map(m=>{
-        if(m.status!=="produzindo") return m;
-        const np=m.pecas_boas+(Math.random()>0.4?1:0);
-        const nt=Math.round(Math.min(85,m.temperatura+(Math.random()>0.55?1:-1)));
-        const done=np>=m.meta;
-        if(done){ addLog("info",`${m.id} — Ordem concluída. ${np} peças registradas.`);
-          setEstoque(p=>p.map((e,i)=>i===0?{...e,quantidade:e.quantidade+np}:e)); }
-        if(nt>75&&m.temperatura<=75) addLog("warning",`${m.id} — Temperatura elevada: ${nt} °C`);
-        return {...m,pecas_boas:np,temperatura:nt,status:done?"concluida":"produzindo"};
-      }));
-    },1600);
-    return ()=>clearInterval(iv);
-  },[addLog,setMachines,setEstoque]);
+
 
   const handleCmd = useCallback((mid,cmd)=>{
     const map={iniciar:"produzindo",pausar:"pausada",encerrar:"concluida"};

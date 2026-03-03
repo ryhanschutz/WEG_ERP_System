@@ -85,4 +85,20 @@ public class DB {
             System.err.println("[DB] Erro ao atualizar estoque: " + e.getMessage());
         }
     }
+
+    // ── Incrementa peças boas na máquina ─────────────────────────────────────
+    public static void incrementarPecasMaquina(String cod, int pecas) {
+        String sql = """
+            UPDATE maquinas
+            SET pecas_boas = COALESCE(pecas_boas,0) + ?, atualizado_em = now()
+            WHERE codigo = ?
+            """;
+        try (PreparedStatement ps = get().prepareStatement(sql)) {
+            ps.setInt(1, pecas);
+            ps.setString(2, cod);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro ao incrementar peças da máquina: " + e.getMessage());
+        }
+    }
 }
