@@ -59,27 +59,42 @@ public class ApiServer {
                                             .toLocalTime().toString().substring(0, 8));
                     result.add(row);
                 }
+            } catch (SQLException e) {
+                System.err.println("[API] Erro ao buscar ordens: " + e.getMessage());
+                e.printStackTrace();
             }
             ctx.json(result);
         });
 
         // ── POST /api/ordens ──────────────────────────────────────────────────
         app.post("/api/ordens", ctx -> {
-            Map body = gson.fromJson(ctx.body(), Map.class);
-            String sql = """
-                INSERT INTO ordens (produto, quantidade, maquina_cod, prioridade, autor)
-                VALUES (?, ?, ?, ?, ?) RETURNING id
-                """;
-            try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
-                ps.setString(1, (String) body.get("produto"));
-                ps.setInt(2,    ((Double) body.get("quantidade")).intValue());
-                ps.setString(3, (String) body.get("maquina"));
-                ps.setString(4, (String) body.get("prioridade"));
-                ps.setString(5, (String) body.get("autor"));
-                ResultSet rs = ps.executeQuery();
-                if (rs.next()) {
-                    ctx.json(Map.of("id", rs.getInt("id"), "status", "criada"));
+            try {
+                Map body = gson.fromJson(ctx.body(), Map.class);
+                String sql = """
+                    INSERT INTO ordens (produto, quantidade, maquina_cod, prioridade, autor)
+                    VALUES (?, ?, ?, ?, ?) RETURNING id
+                    """;
+                try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
+                    ps.setString(1, (String) body.get("produto"));
+                    ps.setInt(2,    ((Double) body.get("quantidade")).intValue());
+                    ps.setString(3, (String) body.get("maquina"));
+                    ps.setString(4, (String) body.get("prioridade"));
+                    ps.setString(5, (String) body.get("autor"));
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) {
+                        int orderId = rs.getInt("id");
+                        System.out.println("[API] Ordem #" + orderId + " criada com sucesso.");
+                        ctx.json(Map.of("id", orderId, "status", "criada"));
+                    }
+                } catch (SQLException e) {
+                    System.err.println("[API] Erro ao inserir ordem: " + e.getMessage());
+                    e.printStackTrace();
+                    ctx.status(500).json(Map.of("erro", "Erro ao salvar ordem: " + e.getMessage()));
                 }
+            } catch (Exception e) {
+                System.err.println("[API] Erro geral no POST /api/ordens: " + e.getMessage());
+                e.printStackTrace();
+                ctx.status(500).json(Map.of("erro", e.getMessage()));
             }
         });
 

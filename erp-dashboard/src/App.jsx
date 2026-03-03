@@ -236,6 +236,22 @@ function ModalOrdem({ onClose, onSave }) {
 function ModuloERP({ user, machines, setMachines, ordens, setOrdens, estoque, setEstoque, log, addLog }) {
   const [modal, setModal] = useState(false);
 
+  // Polling de ordens a cada 3 segundos
+  useEffect(()=>{
+    const iv = setInterval(async ()=>{
+      try {
+        const res = await fetch("/api/ordens");
+        if(res.ok) {
+          const ordensData = await res.json();
+          setOrdens(ordensData);
+        }
+      } catch(e) {
+        console.error("Erro ao atualizar ordens:", e);
+      }
+    }, 3000);
+    return ()=>clearInterval(iv);
+  }, [setOrdens]);
+
   useEffect(()=>{
     const iv = setInterval(()=>{
       setMachines(prev=>prev.map(m=>{
@@ -263,12 +279,25 @@ function ModuloERP({ user, machines, setMachines, ordens, setOrdens, estoque, se
     addLog("info",`[${user.nome}] Comando MQTT → ${mid} ${lbl[cmd]||cmd}.`);
   },[addLog,setMachines,user]);
 
-  const handleSave=(f)=>{
-    const id=ordCounter++;
-    setOrdens(p=>[{id,...f,autor:user.nome,ts:new Date().toLocaleTimeString("pt-BR")},...p]);
-    setMachines(p=>p.map(m=>m.id===f.maquina?{...m,meta:f.quantidade,pecas_boas:0,status:"idle"}:m));
-    addLog("info",`[${user.nome}] Ordem #${id} criada — ${f.quantidade}× ${f.produto} → ${f.maquina}.`);
-    setModal(false);
+  const handleSave = async (f) => {
+    try {
+      const res = await fetch("/api/ordens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, autor: user.nome }),
+      });
+      if(res.ok) {
+        const data = await res.json();
+        addLog("info", `[${user.nome}] Ordem #${data.id} criada — ${f.quantidade}× ${f.produto} → ${f.maquina}.`);
+        setMachines(p=>p.map(m=>m.id===f.maquina?{...m,meta:f.quantidade,pecas_boas:0,status:"idle"}:m));
+        setModal(false);
+        // Força atualização das ordens
+        const resOrdens = await fetch("/api/ordens");
+        if(resOrdens.ok) setOrdens(await resOrdens.json());
+      }
+    } catch(e) {
+      addLog("error", `Erro ao criar ordem: ${e.message}`);
+    }
   };
 
   const ativos=machines.filter(m=>m.status==="produzindo").length;
@@ -585,6 +614,37 @@ export default function App() {
   const addLog = useCallback((tipo,msg)=>{
     setLog(p=>[{id:Date.now(),tipo,msg,ts:new Date().toLocaleTimeString("pt-BR")},...p.slice(0,24)]);
   },[]);
+
+  // Fetch de dados do backend quando o usuário faz login
+  useEffect(()=>{
+    if(!user) return;
+    
+    const carregarDados = async () => {
+      try {
+        const resMaquinas = await fetch("/api/maquinas");
+        if(resMaquinas.ok) {
+          const maquinas = await resMaquinas.json();
+          setMachines(maquinas);
+          addLog("info", "Dados de máquinas carregados do servidor.");
+        }
+      } catch(e) {
+        addLog("warning", "Erro ao carregar máquinas: " + e.message);
+      }
+
+      try {
+        const resOrdens = await fetch("/api/ordens");
+        if(resOrdens.ok) {
+          const ordensData = await resOrdens.json();
+          setOrdens(ordensData);
+          addLog("info", "Ordens carregadas do servidor.");
+        }
+      } catch(e) {
+        addLog("warning", "Erro ao carregar ordens: " + e.message);
+      }
+    };
+
+    carregarDados();
+  }, [user, addLog, setMachines, setOrdens]);
 
   const handleLogin=(u)=>{ setUser(u); addLog("info",`[${u.nome}] Sessão iniciada — ${u.perfil}.`); };
   const handleLogout=()=>{ addLog("info",`[${user.nome}] Sessão encerrada.`); setUser(null); };

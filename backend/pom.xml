@@ -51,6 +51,13 @@
       <artifactId>gson</artifactId>
       <version>2.10.1</version>
     </dependency>
+
+    <!-- Jackson — para serialização de JSON no Javalin -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.16.1</version>
+    </dependency>
   </dependencies>
 
   <build>
