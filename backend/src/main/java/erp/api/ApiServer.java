@@ -15,7 +15,7 @@ public class ApiServer {
     public static void iniciar() {
         Javalin app = Javalin.create(cfg -> {
             cfg.bundledPlugins.enableCors(cors ->
-                cors.addRule(it -> it.anyHost())  // permite o React acessar
+                cors.addRule(it -> it.anyHost())
             );
         }).start(8080);
 
@@ -24,7 +24,7 @@ public class ApiServer {
         // ── GET /api/maquinas ─────────────────────────────────────────────────
         app.get("/api/maquinas", ctx -> {
             List<Map<String, Object>> result = new ArrayList<>();
-            String sql = "SELECT codigo, nome, status, temperatura, meta_diaria, pecas_boas FROM maquinas WHERE ativa = true";            
+            String sql = "SELECT codigo, nome, status, temperatura, meta_diaria, pecas_boas FROM maquinas WHERE ativa = true";
             try (Statement st = DB.get().createStatement();
                  ResultSet rs = st.executeQuery(sql)) {
                 while (rs.next()) {
@@ -34,9 +34,13 @@ public class ApiServer {
                     row.put("status",      rs.getString("status"));
                     row.put("temperatura", rs.getInt("temperatura"));
                     row.put("meta",        rs.getInt("meta_diaria"));
-                    row.put("pecas_boas", rs.getInt("pecas_boas"));
+                    row.put("pecas_boas",  rs.getInt("pecas_boas"));
                     result.add(row);
                 }
+            } catch (SQLException e) {
+                System.err.println("[API] Erro ao buscar máquinas: " + e.getMessage());
+                ctx.status(500).json(List.of());
+                return;
             }
             ctx.json(result);
         });
@@ -62,7 +66,6 @@ public class ApiServer {
                 }
             } catch (SQLException e) {
                 System.err.println("[API] Erro ao buscar ordens: " + e.getMessage());
-                e.printStackTrace();
             }
             ctx.json(result);
         });
@@ -87,39 +90,55 @@ public class ApiServer {
                         System.out.println("[API] Ordem #" + orderId + " criada com sucesso.");
                         ctx.json(Map.of("id", orderId, "status", "criada"));
                     }
-                } catch (SQLException e) {
-                    System.err.println("[API] Erro ao inserir ordem: " + e.getMessage());
-                    e.printStackTrace();
-                    ctx.status(500).json(Map.of("erro", "Erro ao salvar ordem: " + e.getMessage()));
                 }
             } catch (Exception e) {
-                System.err.println("[API] Erro geral no POST /api/ordens: " + e.getMessage());
-                e.printStackTrace();
+                System.err.println("[API] Erro no POST /api/ordens: " + e.getMessage());
                 ctx.status(500).json(Map.of("erro", e.getMessage()));
             }
         });
 
         // ── POST /api/comandos ────────────────────────────────────────────────
-        // Recebe do frontend e publica no MQTT → ESP32
         app.post("/api/comandos", ctx -> {
-            Map body = gson.fromJson(ctx.body(), Map.class);
-            String maquina = (String) body.get("maquina_id");
-            String comando = (String) body.get("comando");
-            String autor   = (String) body.get("autor");
+            try {
+                Map body   = gson.fromJson(ctx.body(), Map.class);
+                String maquina = (String) body.get("maquina_id");
+                String comando = (String) body.get("comando");
+                String autor   = (String) body.get("autor");
 
-            // Publica no MQTT para o ESP32
-            String payload = String.format(
-                "{\"maquina_id\":\"%s\",\"comando\":\"%s\",\"autor\":\"%s\"}",
-                maquina, comando, autor
-            );
-            MqttService.publicarComando(payload);
+                // 1. Atualiza banco imediatamente — não depende do ESP32 responder
+                String novoStatus = switch (comando) {
+                    case "iniciar"  -> "produzindo";
+                    case "pausar"   -> "pausada";
+                    case "encerrar" -> "concluida";
+                    case "resetar"  -> "idle";
+                    default         -> "idle";
+                };
 
-            // Grava no banco
-            DB.gravarAlerta("info",
-                "[" + autor + "] Comando '" + comando + "' enviado → " + maquina,
-                maquina, autor);
+                // Zera peças ao iniciar ou resetar
+                if ("iniciar".equals(comando) || "resetar".equals(comando)) {
+                    DB.atualizarPecasMaquina(maquina, 0);
+                }
 
-            ctx.json(Map.of("status", "enviado", "payload", payload));
+                DB.atualizarMaquina(maquina, novoStatus, 0);
+
+                // 2. Publica MQTT para o ESP32 (melhor esforço)
+                String payload = String.format(
+                    "{\"maquina_id\":\"%s\",\"comando\":\"%s\",\"autor\":\"%s\"}",
+                    maquina, comando, autor
+                );
+                MqttService.publicarComando(payload);
+
+                // 3. Grava alerta
+                DB.gravarAlerta("info",
+                    "[" + autor + "] Comando '" + comando + "' → " + maquina,
+                    maquina, autor);
+
+                ctx.json(Map.of("status", "enviado", "payload", payload));
+
+            } catch (Exception e) {
+                System.err.println("[API] Erro no POST /api/comandos: " + e.getMessage());
+                ctx.status(500).json(Map.of("erro", e.getMessage()));
+            }
         });
 
         // ── GET /api/estoque ──────────────────────────────────────────────────
@@ -136,6 +155,8 @@ public class ApiServer {
                     row.put("minimo",     rs.getInt("minimo"));
                     result.add(row);
                 }
+            } catch (SQLException e) {
+                System.err.println("[API] Erro ao buscar estoque: " + e.getMessage());
             }
             ctx.json(result);
         });
@@ -156,6 +177,8 @@ public class ApiServer {
                                       .toLocalTime().toString().substring(0, 8));
                     result.add(row);
                 }
+            } catch (SQLException e) {
+                System.err.println("[API] Erro ao buscar alertas: " + e.getMessage());
             }
             ctx.json(result);
         });
@@ -179,68 +202,80 @@ public class ApiServer {
                     String cod = rs.getString("codigo");
                     if (!produtos.containsKey(cod)) {
                         Map<String, Object> prod = new LinkedHashMap<>();
-                        prod.put("id",          cod);
-                        prod.put("nome",         rs.getString("nome"));
-                        prod.put("material",     rs.getString("material"));
-                        prod.put("peso",         rs.getString("peso"));
-                        prod.put("tolerancia",   rs.getString("tolerancia"));
-                        prod.put("responsavel",  rs.getString("responsavel"));
-                        prod.put("revisao",      rs.getString("revisao"));
-                        prod.put("fases",        new ArrayList<>());
+                        prod.put("id",         cod);
+                        prod.put("nome",        rs.getString("nome"));
+                        prod.put("material",    rs.getString("material"));
+                        prod.put("peso",        rs.getString("peso"));
+                        prod.put("tolerancia",  rs.getString("tolerancia"));
+                        prod.put("responsavel", rs.getString("responsavel"));
+                        prod.put("revisao",     rs.getString("revisao"));
+                        prod.put("fases",       new ArrayList<>());
                         produtos.put(cod, prod);
                     }
                     Map<String, Object> fase = new LinkedHashMap<>();
-                    fase.put("id",           rs.getInt("fase_id"));
-                    fase.put("nome",         rs.getString("nome_fase"));
-                    fase.put("status",       rs.getString("status"));
-                    fase.put("responsavel",  rs.getString("fase_resp") != null ? rs.getString("fase_resp") : "—");
-                    fase.put("obs",          rs.getString("observacao") != null ? rs.getString("observacao") : "");
-                    fase.put("data",         rs.getDate("data_conclusao") != null
-                                               ? rs.getDate("data_conclusao").toString() : "—");
+                    fase.put("id",          rs.getInt("fase_id"));
+                    fase.put("nome",        rs.getString("nome_fase"));
+                    fase.put("status",      rs.getString("status"));
+                    fase.put("responsavel", rs.getString("fase_resp") != null ? rs.getString("fase_resp") : "—");
+                    fase.put("obs",         rs.getString("observacao") != null ? rs.getString("observacao") : "");
+                    fase.put("data",        rs.getDate("data_conclusao") != null
+                                              ? rs.getDate("data_conclusao").toString() : "—");
                     ((List) produtos.get(cod).get("fases")).add(fase);
                 }
                 result.addAll(produtos.values());
+            } catch (SQLException e) {
+                System.err.println("[API] Erro ao buscar PLM: " + e.getMessage());
             }
             ctx.json(result);
         });
 
         // ── PATCH /api/plm/fase/:id ───────────────────────────────────────────
         app.patch("/api/plm/fase/{id}", ctx -> {
-            int id = Integer.parseInt(ctx.pathParam("id"));
-            Map body = gson.fromJson(ctx.body(), Map.class);
-            String sql = """
-                UPDATE plm_fases
-                SET status = ?, observacao = ?, alterado_por = ?, atualizado_em = now()
-                WHERE id = ?
-                """;
-            try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
-                ps.setString(1, (String) body.get("status"));
-                ps.setString(2, (String) body.get("observacao"));
-                ps.setString(3, (String) body.get("alterado_por"));
-                ps.setInt(4, id);
-                ps.executeUpdate();
+            try {
+                int id = Integer.parseInt(ctx.pathParam("id"));
+                Map body = gson.fromJson(ctx.body(), Map.class);
+                String sql = """
+                    UPDATE plm_fases
+                    SET status = ?, observacao = ?, alterado_por = ?, atualizado_em = now()
+                    WHERE id = ?
+                    """;
+                try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
+                    ps.setString(1, (String) body.get("status"));
+                    ps.setString(2, (String) body.get("observacao"));
+                    ps.setString(3, (String) body.get("alterado_por"));
+                    ps.setInt(4, id);
+                    ps.executeUpdate();
+                }
+                ctx.json(Map.of("status", "atualizado"));
+            } catch (Exception e) {
+                System.err.println("[API] Erro no PATCH /api/plm/fase: " + e.getMessage());
+                ctx.status(500).json(Map.of("erro", e.getMessage()));
             }
-            ctx.json(Map.of("status", "atualizado"));
         });
 
         // ── POST /api/login ───────────────────────────────────────────────────
         app.post("/api/login", ctx -> {
-            Map body = gson.fromJson(ctx.body(), Map.class);
-            String sql = "SELECT id, nome, perfil FROM usuarios WHERE usuario = ? AND senha = ?";
-            try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
-                ps.setString(1, (String) body.get("usuario"));
-                ps.setString(2, (String) body.get("senha"));
-                ResultSet rs = ps.executeQuery();
-                if (rs.next()) {
-                    ctx.json(Map.of(
-                        "ok",      true,
-                        "nome",    rs.getString("nome"),
-                        "perfil",  rs.getString("perfil"),
-                        "usuario", body.get("usuario")
-                    ));
-                } else {
-                    ctx.status(401).json(Map.of("ok", false, "erro", "Usuário ou senha incorretos."));
+            try {
+                Map body = gson.fromJson(ctx.body(), Map.class);
+                String sql = "SELECT id, nome, perfil FROM usuarios WHERE usuario = ? AND senha = ?";
+                try (PreparedStatement ps = DB.get().prepareStatement(sql)) {
+                    ps.setString(1, (String) body.get("usuario"));
+                    ps.setString(2, (String) body.get("senha"));
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) {
+                        ctx.json(Map.of(
+                            "ok",      true,
+                            "nome",    rs.getString("nome"),
+                            "perfil",  rs.getString("perfil"),
+                            "usuario", body.get("usuario")
+                        ));
+                    } else {
+                        ctx.status(401).json(Map.of("ok", false, "erro", "Usuário ou senha incorretos."));
+                    }
                 }
+            } catch (Exception e) {
+                System.err.println("[API] Erro no POST /api/login: " + e.getMessage());
+                ctx.status(500).json(Map.of("erro", e.getMessage()));
             }
         });
     }
