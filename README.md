@@ -1,6 +1,6 @@
 # WEG ERP System
 
-Sistema de gestão industrial com integração em tempo real entre dashboard, API REST, banco de dados em nuvem e microcontrolador via MQTT.
+Sistema de gestão industrial com integração em tempo real entre dashboard, API REST, banco de dados em nuvem e microcontrolador via MQTT. (https://wokwi.com/projects/457493494723068929)
 
 ---
 
