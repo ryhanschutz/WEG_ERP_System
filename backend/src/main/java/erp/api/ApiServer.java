@@ -24,7 +24,7 @@ public class ApiServer {
         // ── GET /api/maquinas ─────────────────────────────────────────────────
         app.get("/api/maquinas", ctx -> {
             List<Map<String, Object>> result = new ArrayList<>();
-            String sql = "SELECT codigo, nome, status, temperatura, meta_diaria FROM maquinas WHERE ativa = true";
+            String sql = "SELECT codigo, nome, status, temperatura, meta_diaria, pecas_boas FROM maquinas WHERE ativa = true";            
             try (Statement st = DB.get().createStatement();
                  ResultSet rs = st.executeQuery(sql)) {
                 while (rs.next()) {
@@ -34,6 +34,7 @@ public class ApiServer {
                     row.put("status",      rs.getString("status"));
                     row.put("temperatura", rs.getInt("temperatura"));
                     row.put("meta",        rs.getInt("meta_diaria"));
+                    row.put("pecas_boas", rs.getInt("pecas_boas"));
                     result.add(row);
                 }
             }

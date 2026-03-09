@@ -76,7 +76,8 @@ public class MqttService {
 
             // 3. Se for registro de peça, incrementa contador da máquina
             if ("peca_registrada".equals(e.evento) && e.pecas_boas > 0) {
-                DB.incrementarPecasMaquina(e.maquina_id, e.pecas_boas);
+                DB.atualizarPecasMaquina(e.maquina_id, e.pecas_boas);
+
             }
 
             // 4. Lógica de alertas

@@ -5,8 +5,6 @@ import java.sql.*;
 public class DB {
 
     private static final String URL = System.getenv("DATABASE_URL");
-    // Formato esperado na variável de ambiente:
-    // jdbc:postgresql://ep-xxxx.us-east-2.aws.neon.tech/neondb?sslmode=require&user=xxx&password=xxx
 
     private static Connection conn;
 
@@ -39,7 +37,7 @@ public class DB {
         }
     }
 
-    // ── Atualiza status da máquina ────────────────────────────────────────────
+    // ── Atualiza status e temperatura da máquina ──────────────────────────────
     public static void atualizarMaquina(String cod, String status, int temp) {
         String sql = "UPDATE maquinas SET status = ?, temperatura = ? WHERE codigo = ?";
         try (PreparedStatement ps = get().prepareStatement(sql)) {
@@ -49,6 +47,23 @@ public class DB {
             ps.executeUpdate();
         } catch (SQLException e) {
             System.err.println("[DB] Erro ao atualizar máquina: " + e.getMessage());
+        }
+    }
+
+    // ── Atualiza peças boas da máquina (SET, não soma) ────────────────────────
+    // O ESP32 envia o total acumulado, então usamos SET em vez de += 
+    public static void atualizarPecasMaquina(String cod, int pecasTotal) {
+        String sql = """
+            UPDATE maquinas
+            SET pecas_boas = ?, atualizado_em = now()
+            WHERE codigo = ?
+            """;
+        try (PreparedStatement ps = get().prepareStatement(sql)) {
+            ps.setInt(1, pecasTotal);
+            ps.setString(2, cod);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro ao atualizar peças da máquina: " + e.getMessage());
         }
     }
 
@@ -70,7 +85,7 @@ public class DB {
         }
     }
 
-    // ── Atualiza estoque ──────────────────────────────────────────────────────
+    // ── Incrementa estoque ao encerrar ordem ──────────────────────────────────
     public static void incrementarEstoque(String produto, int quantidade) {
         String sql = """
             UPDATE estoque
@@ -83,22 +98,6 @@ public class DB {
             ps.executeUpdate();
         } catch (SQLException e) {
             System.err.println("[DB] Erro ao atualizar estoque: " + e.getMessage());
-        }
-    }
-
-    // ── Incrementa peças boas na máquina ─────────────────────────────────────
-    public static void incrementarPecasMaquina(String cod, int pecas) {
-        String sql = """
-            UPDATE maquinas
-            SET pecas_boas = COALESCE(pecas_boas,0) + ?, atualizado_em = now()
-            WHERE codigo = ?
-            """;
-        try (PreparedStatement ps = get().prepareStatement(sql)) {
-            ps.setInt(1, pecas);
-            ps.setString(2, cod);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            System.err.println("[DB] Erro ao incrementar peças da máquina: " + e.getMessage());
         }
     }
 }
